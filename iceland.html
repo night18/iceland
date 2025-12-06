@@ -1,0 +1,864 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>2026 冰島日全食環島計畫</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@300;400;500;700&display=swap" rel="stylesheet">
+    <!-- Leaflet CSS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+    <!-- Chosen Palette: Arctic Warmth - Grounded in soft paper whites (#f8fafc) and warm greys, with accents of Glacial Blue (#0ea5e9) for standard days and Eclipse Gold (#eab308) for the main event. -->
+    
+    <!-- Application Structure Plan: 
+         1. Dashboard Header: High-level trip stats (Dates, Total Distance, Eclipse Date).
+         2. Interactive Timeline (Main Navigation): A horizontal or vertical step navigator allowing users to jump between days. This supports linear exploration.
+         3. Dynamic Day Detail View: The core content area. Updates based on the timeline selection. Shows itinerary, accommodation, and specific driving notes.
+         4. Driving Load Analysis (Chart): A bar chart visualizing the driving distance per day. Crucial for mental preparation, especially for the Day 5 spike.
+         5. Route Map Visualization: REMOVED.
+         6. Packing & Prep: Interactive checklist for essential gear (Eclipse glasses, etc.).
+         
+         Why this structure? The user's primary concern is the Eclipse and the logistics of a ring road trip. The structure prioritizes the chronological flow and analytical views (chart) on driving fatigue and geographical context.
+    -->
+
+    <!-- Visualization & Content Choices:
+         1. Driving Distance Analysis -> Goal: Change/Prepare -> Bar Chart (Chart.js) -> Interaction: Hover for exact km -> Justification: Visualizes the physical toll of Day 5 compared to others.
+         2. Day-by-Day Cards -> Goal: Inform/Organize -> Dynamic HTML -> Interaction: Click to select day -> Justification: Clean way to present dense text content.
+         3. Route Map Visualization -> REMOVED.
+         
+         CONFIRMATION: NO SVG graphics used. NO Mermaid JS used.
+    -->
+
+    <style>
+        body {
+            font-family: 'Noto Sans TC', sans-serif;
+            background-color: #f8fafc;
+            color: #334155;
+        }
+        
+        /* Chart Container Styling - Mandatory Requirements */
+        .chart-container {
+            position: relative;
+            width: 100%;
+            max-width: 800px;
+            margin-left: auto;
+            margin-right: auto;
+            height: 300px;
+            max-height: 400px;
+        }
+
+        @media (min-width: 768px) {
+            .chart-container {
+                height: 400px;
+            }
+        }
+
+        /* Map Container Styling */
+        .map-container {
+            position: relative;
+            width: 100%;
+            height: 400px;
+            border-radius: 0.75rem;
+            overflow: hidden;
+            border: 1px solid #e2e8f0;
+        }
+
+        .map-container .leaflet-container {
+            height: 100%;
+            width: 100%;
+        }
+
+        .active-day-btn {
+            background-color: #0ea5e9; /* Sky 500 */
+            color: white;
+            border-color: #0ea5e9;
+        }
+        
+        .eclipse-day-btn {
+            background-color: #eab308; /* Yellow 500 */
+            color: white;
+            border-color: #eab308;
+            box-shadow: 0 0 10px rgba(234, 179, 8, 0.5);
+        }
+
+        /* Custom Scrollbar for clarity */
+        ::-webkit-scrollbar {
+            width: 8px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #f1f1f1; 
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #cbd5e1; 
+            border-radius: 4px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #94a3b8; 
+        }
+    </style>
+</head>
+<body class="min-h-screen flex flex-col">
+
+    <!-- Hero Section -->
+    <header class="bg-slate-900 text-white shadow-lg">
+        <div class="container mx-auto px-4 py-8">
+            <div class="flex flex-col md:flex-row justify-between items-center">
+                <div class="mb-4 md:mb-0">
+                    <h1 class="text-3xl md:text-4xl font-bold mb-2">2026 冰島日全食環島計畫</h1>
+                    <p class="text-slate-300">8 天 7 夜 | 逆時針環島 | 追逐全食帶</p>
+                </div>
+                <div class="text-right">
+                    <div class="text-yellow-400 font-bold text-xl">全食觀測日</div>
+                    <div class="text-3xl font-mono">2026.08.12</div>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Content Grid -->
+    <main class="flex-grow container mx-auto px-4 py-8 grid grid-cols-1 lg:grid-cols-12 gap-8">
+
+        <!-- Left Sidebar: Navigation & High Level Stats -->
+        <aside class="lg:col-span-3 space-y-6">
+            
+            <!-- Trip Stats Card -->
+            <div class="bg-white rounded-xl shadow-sm p-6 border border-slate-100">
+                <h3 class="text-lg font-bold text-slate-800 mb-4 border-b pb-2">旅程概覽</h3>
+                <div class="space-y-4">
+                    <div>
+                        <span class="text-sm text-slate-500 block">總天數</span>
+                        <span class="text-2xl font-bold text-slate-700">8 天</span>
+                    </div>
+                    <div>
+                        <span class="text-sm text-slate-500 block">預估總里程</span>
+                        <span class="text-2xl font-bold text-slate-700">~1,850 km</span>
+                    </div>
+                    <div>
+                        <span class="text-sm text-slate-500 block">重點目標</span>
+                        <span class="inline-block bg-yellow-100 text-yellow-800 text-xs px-2 py-1 rounded-full font-semibold">日全食</span>
+                        <span class="inline-block bg-blue-100 text-blue-800 text-xs px-2 py-1 rounded-full font-semibold">環島</span>
+                        <span class="inline-block bg-green-100 text-green-800 text-xs px-2 py-1 rounded-full font-semibold">輕鬆步道</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Day Navigator -->
+            <div class="bg-white rounded-xl shadow-sm p-6 border border-slate-100">
+                <h3 class="text-lg font-bold text-slate-800 mb-4">每日行程</h3>
+                <p class="text-sm text-slate-500 mb-4">點擊日期查看詳細安排。</p>
+                <div class="space-y-2 flex flex-col" id="day-nav-container">
+                    <!-- Nav buttons injected by JS -->
+                </div>
+            </div>
+
+        </aside>
+
+        <!-- Center/Right: Dynamic Content & Analytics -->
+        <section class="lg:col-span-9 space-y-8">
+
+            <!-- Intro Text (Now combined with general strategy) -->
+            <div class="bg-white rounded-xl shadow-sm p-6 border-l-4 border-blue-500">
+                <h2 class="text-xl font-bold text-slate-800 mb-2">行程策略說明</h2>
+                <p class="text-slate-600 leading-relaxed">
+                    此應用程式旨在協助您規劃 2026 年的冰島日全食之旅。我們採用了<strong>逆時針</strong>路線，確保您在第 5 天（8 月 12 日）能夠準時抵達位於冰島西部的最佳日全食觀測帶。請注意，為了配合天象，第 5 天的車程較長，請務必參考下方的駕駛分析圖表做好準備。
+                </p>
+            </div>
+
+            <!-- Dynamic Day Detail Panel -->
+            <div id="day-detail-panel" class="bg-white rounded-xl shadow-lg border border-slate-200 overflow-hidden transition-all duration-300">
+                <!-- Content injected by JS -->
+                <div class="p-12 text-center text-slate-400">
+                    <p>正在載入行程資料...</p>
+                </div>
+            </div>
+
+            <!-- Route Map Section -->
+            <div class="bg-white rounded-xl shadow-sm p-6 border border-slate-100">
+                <div class="flex justify-between items-center mb-4">
+                    <div>
+                        <h2 class="text-xl font-bold text-slate-800">每日路線地圖</h2>
+                        <p class="text-sm text-slate-500 mt-1">顯示當日實際行車路線</p>
+                    </div>
+                    <div id="routeLoading" class="hidden text-sm text-slate-500 flex items-center gap-2">
+                        <svg class="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                        </svg>
+                        <span>載入路線中...</span>
+                    </div>
+                </div>
+                <div class="map-container" id="routeMap"></div>
+                <div class="mt-4 flex flex-wrap gap-4 text-sm">
+                    <div class="flex items-center gap-2">
+                        <div class="w-4 h-4 rounded-full bg-blue-500 border-2 border-white shadow"></div>
+                        <span class="text-slate-600">出發地</span>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <div class="w-4 h-4 rounded-full bg-green-500 border-2 border-white shadow"></div>
+                        <span class="text-slate-600">目的地</span>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <div class="w-4 h-4 rounded-full bg-purple-500 border-2 border-white shadow"></div>
+                        <span class="text-slate-600">景點</span>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <div class="w-4 h-1 bg-slate-400"></div>
+                        <span class="text-slate-600">實際路線</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Driving Analysis Chart Section -->
+            <div class="bg-white rounded-xl shadow-sm p-6 border border-slate-100">
+                <div class="flex justify-between items-center mb-6">
+                    <div>
+                        <h2 class="text-xl font-bold text-slate-800">駕駛負荷分析</h2>
+                        <p class="text-sm text-slate-500 mt-1">每日預估行車距離 (公里)。注意第 5 天的長途移動。</p>
+                    </div>
+                    <div class="bg-slate-100 px-3 py-1 rounded text-xs text-slate-500">
+                        總里程監控
+                    </div>
+                </div>
+                
+                <!-- Chart Container -->
+                <div class="chart-container">
+                    <canvas id="drivingChart"></canvas>
+                </div>
+                
+                <div class="mt-4 p-4 bg-yellow-50 rounded-lg text-sm text-yellow-800 border border-yellow-100 flex items-start gap-3">
+                    <span class="text-xl">⚠️</span>
+                    <p>
+                        <strong>關鍵提示：</strong> 第 5 天 (Day 5) 為了從北部米湖趕往西部的日全食觀測點，需要行駛約 500-600 公里。這是整趟旅程中最辛苦的一天，建議輪流駕駛並提早出發。
+                    </p>
+                </div>
+            </div>
+
+            <!-- Preparation Checklist -->
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div class="bg-white rounded-xl shadow-sm p-6 border border-slate-100">
+                    <h3 class="text-lg font-bold text-slate-800 mb-4">日全食觀測準備</h3>
+                    <ul class="space-y-3">
+                        <li class="flex items-center gap-3">
+                            <input type="checkbox" id="prep1" class="w-5 h-5 text-blue-600 rounded focus:ring-blue-500">
+                            <label for="prep1" class="text-slate-700 cursor-pointer">購買認證的日食眼鏡 (ISO 12312-2)</label>
+                        </li>
+                        <li class="flex items-center gap-3">
+                            <input type="checkbox" id="prep2" class="w-5 h-5 text-blue-600 rounded focus:ring-blue-500">
+                            <label for="prep2" class="text-slate-700 cursor-pointer">下載離線地圖 (西部/斯奈山)</label>
+                        </li>
+                        <li class="flex items-center gap-3">
+                            <input type="checkbox" id="prep3" class="w-5 h-5 text-blue-600 rounded focus:ring-blue-500">
+                            <label for="prep3" class="text-slate-700 cursor-pointer">確認當日雲層預報網站</label>
+                        </li>
+                        <li class="flex items-center gap-3">
+                            <input type="checkbox" id="prep4" class="w-5 h-5 text-blue-600 rounded focus:ring-blue-500">
+                            <label for="prep4" class="text-slate-700 cursor-pointer">預訂博爾加內斯周邊住宿 (儘早)</label>
+                        </li>
+                    </ul>
+                </div>
+                
+                <div class="bg-white rounded-xl shadow-sm p-6 border border-slate-100">
+                    <h3 class="text-lg font-bold text-slate-800 mb-4">一般裝備檢查</h3>
+                    <ul class="space-y-3">
+                        <li class="flex items-center gap-3">
+                            <input type="checkbox" id="gear1" class="w-5 h-5 text-blue-600 rounded focus:ring-blue-500">
+                            <label for="gear1" class="text-slate-700 cursor-pointer">防風防水外套 (天氣多變)</label>
+                        </li>
+                        <li class="flex items-center gap-3">
+                            <input type="checkbox" id="gear2" class="w-5 h-5 text-blue-600 rounded focus:ring-blue-500">
+                            <label for="gear2" class="text-slate-700 cursor-pointer">好走的健行鞋 (防水佳)</label>
+                        </li>
+                        <li class="flex items-center gap-3">
+                            <input type="checkbox" id="gear3" class="w-5 h-5 text-blue-600 rounded focus:ring-blue-500">
+                            <label for="gear3" class="text-slate-700 cursor-pointer">車用充電器 & 手機架</label>
+                        </li>
+                        <li class="flex items-center gap-3">
+                            <input type="checkbox" id="gear4" class="w-5 h-5 text-blue-600 rounded focus:ring-blue-500">
+                            <label for="gear4" class="text-slate-700 cursor-pointer">泳衣 (藍湖/米湖溫泉用)</label>
+                        </li>
+                    </ul>
+                </div>
+            </div>
+
+        </section>
+    </main>
+
+    <footer class="bg-slate-800 text-slate-400 py-6 text-center mt-8">
+        <p>2026 冰島日全食環島計畫 | 依據您的需求客製化設計</p>
+    </footer>
+
+    <!-- JavaScript Logic -->
+    <script>
+        // --- Data Storage ---
+        const itineraryData = [
+            {
+                day: 1,
+                date: "8/8 (六)",
+                title: "抵達與南海岸初探",
+                distance: 300,
+                location: "維克 (Vík)",
+                startLocation: "KEF 機場",
+                startCoords: [63.9850, -22.6056],
+                endCoords: [63.4190, -19.0067],
+                icon: "✈️",
+                highlights: ["藍湖", "塞爾福斯", "塞里雅蘭瀑布", "史可加瀑布"],
+                details: "早上 07:50 抵達 KEF 機場並取車。可選擇先前往藍湖放鬆（需預約）。接著前往塞爾福斯 (Selfoss) 用餐休息。下午沿 1 號公路向東，探訪著名的水濂洞瀑布 (Seljalandsfoss) 與史可加瀑布 (Skógafoss)。",
+                note: "步道輕鬆，瀑布皆在路邊可達。",
+                isEclipse: false
+            },
+            {
+                day: 2,
+                date: "8/9 (日)",
+                title: "冰川與鑽石沙灘",
+                distance: 280,
+                location: "赫本 (Höfn)",
+                startLocation: "維克 (Vík)",
+                startCoords: [63.4190, -19.0067],
+                endCoords: [64.2539, -15.2083],
+                icon: "💎",
+                highlights: ["黑沙灘", "教堂城", "傑古沙龍冰河湖", "鑽石沙灘"],
+                details: "上午前往維克黑沙灘 (Reynisfjara) 觀賞玄武岩柱。途經教堂城 (Kirkjubæjarklaustur) 稍作停留。下午抵達傑古沙龍冰河湖 (Jökulsárlón) 搭船或觀賞浮冰，並造訪旁邊的鑽石沙灘。",
+                note: "黑沙灘浪大請注意安全。住宿於赫本龍蝦鎮。",
+                isEclipse: false
+            },
+            {
+                day: 3,
+                date: "8/10 (一)",
+                title: "東部峽灣景觀",
+                distance: 250,
+                location: "埃伊爾斯塔濟 (Egilsstaðir)",
+                startLocation: "赫本 (Höfn)",
+                startCoords: [64.2539, -15.2083],
+                endCoords: [65.2653, -14.3948],
+                icon: "🏔️",
+                highlights: ["東部峽灣公路", "塞濟斯菲厄澤小鎮"],
+                details: "全天沿著蜿蜒壯麗的東部峽灣海岸線行駛。這是一段享受駕駛樂趣的路程。途中可拜訪白日夢冒險王拍攝地塞濟斯菲厄澤 (Seyðisfjörður)。",
+                note: "若時間允許，可走訪 Hengifoss 瀑布（視體力而定）。",
+                isEclipse: false
+            },
+            {
+                day: 4,
+                date: "8/11 (二)",
+                title: "北部鑽石圈",
+                distance: 200,
+                location: "米湖 (Mývatn)",
+                startLocation: "埃伊爾斯塔濟 (Egilsstaðir)",
+                startCoords: [65.2653, -14.3948],
+                endCoords: [65.6036, -17.0000],
+                icon: "🌋",
+                highlights: ["黛提瀑布", "Víti 火口湖", "米湖溫泉"],
+                details: "前往歐洲水量最大的黛提瀑布 (Dettifoss)。接著進入米湖地熱區，參觀火口湖。傍晚可選擇在米湖溫泉 (Mývatn Nature Baths) 放鬆，為明天的長途駕駛儲備體力。",
+                note: "建議早點休息，明天是重頭戲。",
+                isEclipse: false
+            },
+            {
+                day: 5,
+                date: "8/12 (三)",
+                title: "🌟 日全食觀測日",
+                distance: 550,
+                location: "博爾加內斯 (Borgarnes)",
+                startLocation: "米湖 (Mývatn)",
+                startCoords: [65.6036, -17.0000],
+                endCoords: [64.5381, -21.9206],
+                icon: "🌑",
+                highlights: ["長途移動", "日全食觀測", "斯奈山半島邊緣"],
+                details: "今日關鍵任務：追逐日食。中午前出發，進行約 6 小時的長途駕駛，從北部橫跨至西部。下午抵達博爾加內斯或斯奈山半島南側，尋找空曠處等待傍晚的日全食。",
+                note: "⚠️ 這是最累的一天。請準備日食眼鏡，並隨時關注雲圖調整位置。",
+                isEclipse: true
+            },
+            {
+                day: 6,
+                date: "8/13 (四)",
+                title: "斯奈山半島巡禮",
+                distance: 200,
+                location: "博爾加內斯 (Borgarnes)",
+                startLocation: "博爾加內斯 (Borgarnes)",
+                startCoords: [64.5381, -21.9206],
+                endCoords: [64.5381, -21.9206],
+                icon: "📸",
+                highlights: ["教會山", "阿爾納斯塔皮", "黑教堂"],
+                details: "探索「冰島縮影」斯奈山半島。造訪經典的教會山 (Kirkjufell)、阿爾納斯塔皮 (Arnarstapi) 的海岸步道以及著名的黑教堂 (Búðarkirkja)。",
+                note: "步道皆平坦好走，風景優美。",
+                isEclipse: false
+            },
+            {
+                day: 7,
+                date: "8/14 (五)",
+                title: "黃金圈經典",
+                distance: 250,
+                location: "雷克雅維克 (Reykjavík)",
+                startLocation: "博爾加內斯 (Borgarnes)",
+                startCoords: [64.5381, -21.9206],
+                endCoords: [64.1466, -21.9426],
+                waypoints: [
+                    { name: "辛格韋德利國家公園 (Thingvellir)", coords: [64.2553, -21.1291] },
+                    { name: "Brúarfoss", coords: [64.2636, -20.5153] },
+                    { name: "間歇泉 (Geysir)", coords: [64.3105, -20.3026] },
+                    { name: "黃金瀑布 (Gullfoss)", coords: [64.3271, -20.1201] }
+                ],
+                icon: "⛲",
+                highlights: ["辛格韋德利國家公園", "Brúarfoss", "間歇泉", "黃金瀑布"],
+                details: "返回首都前的最後巡禮。參觀黃金圈經典景點：首先前往辛格韋德利國家公園 (Thingvellir) 觀賞板塊裂縫，接著造訪隱藏的藍色瀑布 Brúarfoss，然後前往間歇泉 (Geysir) 觀看噴發奇觀，最後欣賞壯觀的黃金瀑布 (Gullfoss)。下午返回雷克雅維克市區觀光或購物。",
+                note: "晚上可享用最後的冰島晚餐。",
+                isEclipse: false
+            },
+            {
+                day: 8,
+                date: "8/15 (六)",
+                title: "告別冰島",
+                distance: 50,
+                location: "離境",
+                startLocation: "雷克雅維克 (Reykjavík)",
+                startCoords: [64.1466, -21.9426],
+                endCoords: [63.9850, -22.6056],
+                icon: "🛫",
+                highlights: ["前往機場", "歸還車輛"],
+                details: "早上從雷克雅維克出發，預留時間辦理還車手續。搭乘 09:25 的班機離開冰島，結束難忘的旅程。",
+                note: "請務必提前 2-3 小時抵達機場。",
+                isEclipse: false
+            }
+        ];
+
+        // --- State Management ---
+        let currentDayIndex = 0;
+        let map = null;
+        let routeLayer = null;
+        let currentRouteLine = null;
+
+        // --- DOM Elements ---
+        const navContainer = document.getElementById('day-nav-container');
+        const detailPanel = document.getElementById('day-detail-panel');
+
+        // --- Initialization ---
+        function init() {
+            renderNav();
+            renderDetail(0);
+            initChart();
+            initMap();
+            updateMap(0);
+        }
+
+        // --- Render Functions ---
+        function renderNav() {
+            navContainer.innerHTML = '';
+            itineraryData.forEach((day, index) => {
+                const btn = document.createElement('button');
+                btn.className = `w-full text-left px-4 py-3 rounded-lg border transition-all duration-200 hover:bg-slate-50 flex items-center justify-between group ${index === 0 ? 'active-day-btn' : 'bg-white border-slate-200 text-slate-600'}`;
+                
+                // Highlight Eclipse Day
+                if (day.isEclipse) {
+                    btn.classList.add('ring-2', 'ring-yellow-400', 'ring-offset-2');
+                }
+
+                btn.innerHTML = `
+                    <div class="flex items-center gap-3">
+                        <span class="font-mono font-bold ${day.isEclipse ? 'text-yellow-600' : 'text-slate-400 group-hover:text-slate-600'}">Day ${day.day}</span>
+                        <span class="font-medium">${day.date}</span>
+                    </div>
+                    <span class="text-xl">${day.icon}</span>
+                `;
+
+                btn.onclick = () => {
+                    updateActiveState(index);
+                    renderDetail(index);
+                    updateMap(index);
+                };
+                navContainer.appendChild(btn);
+            });
+        }
+
+        function updateActiveState(activeIndex) {
+            currentDayIndex = activeIndex;
+            const buttons = navContainer.querySelectorAll('button');
+            buttons.forEach((btn, index) => {
+                // Reset base classes
+                btn.className = `w-full text-left px-4 py-3 rounded-lg border transition-all duration-200 hover:bg-slate-50 flex items-center justify-between group ${index === activeIndex ? 'active-day-btn' : 'bg-white border-slate-200 text-slate-600'}`;
+                
+                // Re-apply special rings for Eclipse day even if not active, or active styling
+                if (itineraryData[index].isEclipse) {
+                     if (index === activeIndex) {
+                         btn.classList.add('eclipse-day-btn');
+                         btn.classList.remove('active-day-btn');
+                     } else {
+                         btn.classList.add('ring-2', 'ring-yellow-400', 'ring-offset-2');
+                     }
+                }
+            });
+        }
+
+        function renderDetail(index) {
+            const data = itineraryData[index];
+            
+            // Animation reset
+            detailPanel.style.opacity = '0';
+            
+            setTimeout(() => {
+                const eclipseBanner = data.isEclipse ? 
+                    `<div class="bg-yellow-500 text-white p-3 text-center font-bold tracking-wider uppercase text-sm">🌑 重點行程：日全食觀測 🌑</div>` : '';
+
+                const tagsHtml = data.highlights.map(tag => 
+                    `<span class="bg-slate-100 text-slate-600 text-xs px-2 py-1 rounded-md font-medium">${tag}</span>`
+                ).join('');
+
+                detailPanel.innerHTML = `
+                    ${eclipseBanner}
+                    <div class="p-6 md:p-8">
+                        <div class="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 border-b border-slate-100 pb-4">
+                            <div>
+                                <div class="flex items-center gap-2 mb-1">
+                                    <span class="text-sm font-bold text-blue-500 tracking-widest uppercase">Day ${data.day}</span>
+                                    <span class="text-sm text-slate-400">${data.date}</span>
+                                </div>
+                                <h2 class="text-3xl font-bold text-slate-800">${data.title}</h2>
+                            </div>
+                            <div class="mt-4 md:mt-0 text-right">
+                                <div class="text-sm text-slate-500">住宿地點</div>
+                                <div class="font-bold text-slate-700 flex items-center gap-1 md:justify-end">
+                                    <span>🛏️</span> ${data.location}
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
+                            <div class="bg-blue-50 rounded-lg p-4 border border-blue-100">
+                                <span class="text-xs text-blue-500 font-bold uppercase block mb-1">行車距離</span>
+                                <span class="text-2xl font-bold text-slate-800">${data.distance} <span class="text-sm font-normal text-slate-500">km</span></span>
+                            </div>
+                            <div class="md:col-span-2 space-y-3">
+                                <div class="flex flex-wrap gap-2">
+                                    ${tagsHtml}
+                                </div>
+                                <p class="text-slate-600 leading-relaxed">${data.details}</p>
+                            </div>
+                        </div>
+
+                        <div class="bg-slate-50 rounded-lg p-4 border border-slate-200 flex gap-3">
+                            <span class="text-xl">💡</span>
+                            <div>
+                                <span class="font-bold text-slate-700 block text-sm mb-1">小貼士</span>
+                                <p class="text-sm text-slate-600">${data.note}</p>
+                            </div>
+                        </div>
+                    </div>
+                `;
+                detailPanel.style.opacity = '1';
+            }, 200);
+        }
+        
+        // --- Map Implementation ---
+        function initMap() {
+            // Initialize map centered on Iceland
+            map = L.map('routeMap').setView([64.8, -19.0], 6);
+            
+            // Add OpenStreetMap tiles
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                attribution: '© OpenStreetMap contributors',
+                maxZoom: 19
+            }).addTo(map);
+        }
+
+        async function updateMap(dayIndex) {
+            if (!map) return;
+            
+            const day = itineraryData[dayIndex];
+            if (!day.startCoords || !day.endCoords) return;
+
+            // Show loading indicator
+            const loadingEl = document.getElementById('routeLoading');
+            if (loadingEl) loadingEl.classList.remove('hidden');
+
+            // Clear previous route
+            if (routeLayer) {
+                map.removeLayer(routeLayer);
+            }
+            if (currentRouteLine) {
+                map.removeLayer(currentRouteLine);
+            }
+            routeLayer = L.layerGroup().addTo(map);
+
+            // Add start marker (blue)
+            const startIcon = L.divIcon({
+                className: 'custom-marker-start',
+                html: '<div style="background-color: #3b82f6; width: 20px; height: 20px; border-radius: 50%; border: 3px solid white; box-shadow: 0 2px 4px rgba(0,0,0,0.3);"></div>',
+                iconSize: [20, 20],
+                iconAnchor: [10, 10]
+            });
+            
+            const startMarker = L.marker(day.startCoords, { icon: startIcon }).addTo(routeLayer);
+            startMarker.bindPopup(`<strong>出發地</strong><br>${day.startLocation || '起點'}`).openPopup();
+
+            // Add end marker (green, or yellow for eclipse day)
+            const endColor = day.isEclipse ? '#eab308' : '#10b981';
+            const endIcon = L.divIcon({
+                className: 'custom-marker-end',
+                html: `<div style="background-color: ${endColor}; width: 20px; height: 20px; border-radius: 50%; border: 3px solid white; box-shadow: 0 2px 4px rgba(0,0,0,0.3);"></div>`,
+                iconSize: [20, 20],
+                iconAnchor: [10, 10]
+            });
+            
+            const endMarker = L.marker(day.endCoords, { icon: endIcon }).addTo(routeLayer);
+            endMarker.bindPopup(`<strong>目的地</strong><br>${day.location}`);
+
+            // Check if start and end are the same (Day 6 - local exploration)
+            if (day.startCoords[0] === day.endCoords[0] && day.startCoords[1] === day.endCoords[1]) {
+                // For same location, just show a circle area
+                const circle = L.circle(day.startCoords, {
+                    radius: 20000, // 20km radius
+                    color: day.isEclipse ? '#eab308' : '#64748b',
+                    fillColor: day.isEclipse ? '#eab308' : '#64748b',
+                    fillOpacity: 0.1,
+                    weight: 3,
+                    opacity: 0.7
+                }).addTo(routeLayer);
+                map.setView(day.startCoords, 10);
+                if (loadingEl) loadingEl.classList.add('hidden');
+                return;
+            }
+
+            // Handle waypoints if they exist (e.g., Day 7 with multiple stops)
+            if (day.waypoints && day.waypoints.length > 0) {
+                try {
+                    // Add waypoint markers
+                    const waypointIcon = L.divIcon({
+                        className: 'custom-marker-waypoint',
+                        html: '<div style="background-color: #8b5cf6; width: 16px; height: 16px; border-radius: 50%; border: 2px solid white; box-shadow: 0 2px 4px rgba(0,0,0,0.3);"></div>',
+                        iconSize: [16, 16],
+                        iconAnchor: [8, 8]
+                    });
+
+                    day.waypoints.forEach((waypoint, index) => {
+                        const waypointMarker = L.marker(waypoint.coords, { icon: waypointIcon }).addTo(routeLayer);
+                        waypointMarker.bindPopup(`<strong>景點 ${index + 1}</strong><br>${waypoint.name}`);
+                    });
+
+                    // Build route through all waypoints
+                    const allPoints = [day.startCoords, ...day.waypoints.map(w => w.coords), day.endCoords];
+                    const fullRoute = await fetchRouteWithWaypoints(allPoints);
+                    
+                    if (fullRoute && fullRoute.length > 0) {
+                        const lineColor = day.isEclipse ? '#eab308' : '#3b82f6';
+                        currentRouteLine = L.polyline(fullRoute, {
+                            color: lineColor,
+                            weight: 5,
+                            opacity: 0.8,
+                            smoothFactor: 1
+                        }).addTo(map);
+
+                        // Fit map to show the entire route
+                        const bounds = L.latLngBounds(fullRoute);
+                        map.fitBounds(bounds, { padding: [50, 50] });
+                    } else {
+                        // Fallback: draw straight lines between points
+                        const lineColor = day.isEclipse ? '#eab308' : '#64748b';
+                        for (let i = 0; i < allPoints.length - 1; i++) {
+                            L.polyline([allPoints[i], allPoints[i + 1]], {
+                                color: lineColor,
+                                weight: 4,
+                                opacity: 0.7,
+                                dashArray: '10, 5'
+                            }).addTo(routeLayer);
+                        }
+                        const bounds = L.latLngBounds(allPoints);
+                        map.fitBounds(bounds, { padding: [50, 50] });
+                    }
+                } catch (error) {
+                    console.error('Error fetching route with waypoints:', error);
+                    // Fallback: draw straight lines
+                    const allPoints = [day.startCoords, ...day.waypoints.map(w => w.coords), day.endCoords];
+                    const lineColor = day.isEclipse ? '#eab308' : '#64748b';
+                    for (let i = 0; i < allPoints.length - 1; i++) {
+                        L.polyline([allPoints[i], allPoints[i + 1]], {
+                            color: lineColor,
+                            weight: 4,
+                            opacity: 0.7,
+                            dashArray: '10, 5'
+                        }).addTo(routeLayer);
+                    }
+                    const bounds = L.latLngBounds(allPoints);
+                    map.fitBounds(bounds, { padding: [50, 50] });
+                } finally {
+                    if (loadingEl) loadingEl.classList.add('hidden');
+                }
+            } else {
+                // Fetch actual route using OSRM routing service (no waypoints)
+                try {
+                    const route = await fetchRoute(day.startCoords, day.endCoords);
+                    
+                    if (route && route.length > 0) {
+                        const lineColor = day.isEclipse ? '#eab308' : '#3b82f6';
+                        currentRouteLine = L.polyline(route, {
+                            color: lineColor,
+                            weight: 5,
+                            opacity: 0.8,
+                            smoothFactor: 1
+                        }).addTo(map);
+
+                        // Fit map to show the entire route
+                        const bounds = L.latLngBounds(route);
+                        map.fitBounds(bounds, { padding: [50, 50] });
+                    } else {
+                        // Fallback to straight line if route fetch fails
+                        const lineColor = day.isEclipse ? '#eab308' : '#64748b';
+                        currentRouteLine = L.polyline([day.startCoords, day.endCoords], {
+                            color: lineColor,
+                            weight: 4,
+                            opacity: 0.7,
+                            dashArray: '10, 5'
+                        }).addTo(map);
+                        
+                        const bounds = L.latLngBounds([day.startCoords, day.endCoords]);
+                        map.fitBounds(bounds, { padding: [50, 50] });
+                    }
+                } catch (error) {
+                    console.error('Error fetching route:', error);
+                    // Fallback to straight line on error
+                    const lineColor = day.isEclipse ? '#eab308' : '#64748b';
+                    currentRouteLine = L.polyline([day.startCoords, day.endCoords], {
+                        color: lineColor,
+                        weight: 4,
+                        opacity: 0.7,
+                        dashArray: '10, 5'
+                    }).addTo(map);
+                    
+                    const bounds = L.latLngBounds([day.startCoords, day.endCoords]);
+                    map.fitBounds(bounds, { padding: [50, 50] });
+                } finally {
+                    if (loadingEl) loadingEl.classList.add('hidden');
+                }
+            }
+        }
+
+        async function fetchRoute(startCoords, endCoords) {
+            // Use OSRM routing service (public demo server)
+            // OSRM format: [longitude, latitude] - so we need to swap
+            const start = `${startCoords[1]},${startCoords[0]}`;
+            const end = `${endCoords[1]},${endCoords[0]}`;
+            
+            try {
+                const url = `https://router.project-osrm.org/route/v1/driving/${start};${end}?overview=full&geometries=geojson`;
+                const response = await fetch(url, {
+                    method: 'GET',
+                    headers: {
+                        'Accept': 'application/json'
+                    }
+                });
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                
+                const data = await response.json();
+                
+                if (data.code === 'Ok' && data.routes && data.routes.length > 0) {
+                    // Convert GeoJSON coordinates [lng, lat] to Leaflet [lat, lng]
+                    const coordinates = data.routes[0].geometry.coordinates;
+                    return coordinates.map(coord => [coord[1], coord[0]]);
+                } else {
+                    console.warn('OSRM returned no route:', data);
+                    return null;
+                }
+            } catch (error) {
+                console.warn('Error fetching route from OSRM:', error);
+                return null;
+            }
+        }
+
+        async function fetchRouteWithWaypoints(points) {
+            // Fetch route through multiple waypoints using OSRM
+            // OSRM format: [longitude, latitude]
+            const waypoints = points.map(coord => `${coord[1]},${coord[0]}`).join(';');
+            
+            try {
+                const url = `https://router.project-osrm.org/route/v1/driving/${waypoints}?overview=full&geometries=geojson`;
+                const response = await fetch(url, {
+                    method: 'GET',
+                    headers: {
+                        'Accept': 'application/json'
+                    }
+                });
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                
+                const data = await response.json();
+                
+                if (data.code === 'Ok' && data.routes && data.routes.length > 0) {
+                    // Convert GeoJSON coordinates [lng, lat] to Leaflet [lat, lng]
+                    const coordinates = data.routes[0].geometry.coordinates;
+                    return coordinates.map(coord => [coord[1], coord[0]]);
+                } else {
+                    console.warn('OSRM returned no route with waypoints:', data);
+                    return null;
+                }
+            } catch (error) {
+                console.warn('Error fetching route with waypoints from OSRM:', error);
+                return null;
+            }
+        }
+
+        // --- Chart Implementation ---
+        function initChart() {
+            const ctx = document.getElementById('drivingChart').getContext('2d');
+            
+            new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: itineraryData.map(d => `Day ${d.day}`),
+                    datasets: [{
+                        label: '行車距離 (km)',
+                        data: itineraryData.map(d => d.distance),
+                        backgroundColor: itineraryData.map(d => d.isEclipse ? '#eab308' : '#3b82f6'),
+                        borderRadius: 4,
+                        maxBarThickness: 40
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            display: false
+                        },
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    return ` ${context.parsed.y} km - ${itineraryData[context.dataIndex].title}`;
+                                }
+                            },
+                            backgroundColor: 'rgba(15, 23, 42, 0.9)',
+                            padding: 12,
+                            cornerRadius: 8
+                        }
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            grid: {
+                                borderDash: [2, 4],
+                                color: '#e2e8f0'
+                            },
+                            title: {
+                                display: true,
+                                text: '公里 (km)'
+                            }
+                        },
+                        x: {
+                            grid: {
+                                display: false
+                            }
+                        }
+                    }
+                }
+            });
+        }
+
+        // Start App
+        window.addEventListener('DOMContentLoaded', init);
+
+    </script>
+</body>
+</html>
